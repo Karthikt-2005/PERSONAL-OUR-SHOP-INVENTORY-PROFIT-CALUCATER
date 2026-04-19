@@ -66,7 +66,6 @@ elif menu == "Daily Entry":
     else:
         for _, row in products.iterrows():
 
-            # Check existing quantity
             existing = cur.execute(
                 "SELECT quantity FROM sales WHERE product_id=? AND date=?",
                 (row["product_id"], today)
@@ -78,23 +77,71 @@ elif menu == "Daily Entry":
                 f"{row['name']} (Sell Qty)",
                 min_value=0,
                 value=default_qty,
-                key=f"{row['product_id']}_{today}_{row['id']}"   # FIXED KEY
+                key=f"{row['product_id']}_{today}_{row['id']}"
             )
 
-            if st.button(f"Save {row['name']}", key=f"btn_{row['id']}"):
-                if existing:
-                    cur.execute(
-                        "UPDATE sales SET quantity=? WHERE product_id=? AND date=?",
-                        (qty, row["product_id"], today)
-                    )
-                else:
-                    cur.execute(
-                        "INSERT INTO sales(product_id,quantity,date) VALUES (?,?,?)",
-                        (row["product_id"], qty, today)
-                    )
+            col1, col2, col3 = st.columns(3)
 
-                conn.commit()
-                st.success(f"{row['name']} saved")
+            # SAVE / UPDATE
+            with col1:
+                if st.button("Save", key=f"save_{row['id']}"):
+                    if existing:
+                        cur.execute(
+                            "UPDATE sales SET quantity=? WHERE product_id=? AND date=?",
+                            (qty, row["product_id"], today)
+                        )
+                    else:
+                        cur.execute(
+                            "INSERT INTO sales(product_id,quantity,date) VALUES (?,?,?)",
+                            (row["product_id"], qty, today)
+                        )
+                    conn.commit()
+                    st.success(f"{row['name']} saved")
+
+            # DELETE SALES ENTRY (today)
+            with col2:
+                if st.button("Delete Entry", key=f"del_entry_{row['id']}"):
+                    cur.execute(
+                        "DELETE FROM sales WHERE product_id=? AND date=?",
+                        (row["product_id"], today)
+                    )
+                    conn.commit()
+                    st.warning(f"{row['name']} entry deleted")
+
+            # DELETE PRODUCT COMPLETELY
+            with col3:
+                if st.button("Delete Product", key=f"del_prod_{row['id']}"):
+                    cur.execute(
+                        "DELETE FROM products WHERE product_id=?",
+                        (row["product_id"],)
+                    )
+                    cur.execute(
+                        "DELETE FROM sales WHERE product_id=?",
+                        (row["product_id"],)
+                    )
+                    conn.commit()
+                    st.error(f"{row['name']} removed completely")
+
+            # -------- EDIT PRODUCT --------
+            with st.expander(f"Edit {row['name']}"):
+                new_cost = st.number_input(
+                    "New Cost Price",
+                    value=row["cost_price"],
+                    key=f"cost_{row['id']}"
+                )
+                new_sell = st.number_input(
+                    "New Selling Price",
+                    value=row["selling_price"],
+                    key=f"sell_{row['id']}"
+                )
+
+                if st.button("Update Price", key=f"update_{row['id']}"):
+                    cur.execute(
+                        "UPDATE products SET cost_price=?, selling_price=? WHERE product_id=?",
+                        (new_cost, new_sell, row["product_id"])
+                    )
+                    conn.commit()
+                    st.success("Updated successfully")
 
 # ---------------- DASHBOARD ----------------
 elif menu == "Dashboard":
@@ -105,42 +152,41 @@ elif menu == "Dashboard":
 
     today = str(date.today())
 
-    if products.empty:
-        st.warning("No products available")
-    else:
-        report = []
-        total_profit = 0
+    report = []
+    total_profit = 0
+    total_company_bill = 0
+    total_sales_amount = 0
 
-        for _, p in products.iterrows():
-            pid = p["product_id"]
+    for _, p in products.iterrows():
+        pid = p["product_id"]
 
-            today_sales = sales[
-                (sales["product_id"] == pid) & (sales["date"] == today)
-            ]
+        today_sales = sales[
+            (sales["product_id"] == pid) & (sales["date"] == today)
+        ]
 
-            total_qty = today_sales["quantity"].sum()
+        qty = today_sales["quantity"].sum()
 
-            profit_per_unit = p["selling_price"] - p["cost_price"]
-            profit = profit_per_unit * total_qty
+        cost_total = p["cost_price"] * qty
+        sales_total = p["selling_price"] * qty
+        profit = sales_total - cost_total
 
-            total_profit += profit
+        total_profit += profit
+        total_company_bill += cost_total
+        total_sales_amount += sales_total
 
-            report.append({
-                "Product ID": pid,
-                "Name": p["name"],
-                "Cost": p["cost_price"],
-                "Selling": p["selling_price"],
-                "Sold Qty": total_qty,
-                "Profit": profit
-            })
+        report.append({
+            "Product": p["name"],
+            "Sold Qty": qty,
+            "Cost Price": p["cost_price"],
+            "Selling Price": p["selling_price"],
+            "Company Bill": cost_total,
+            "Sales Amount": sales_total,
+            "Profit": profit
+        })
 
-        df = pd.DataFrame(report)
-        st.dataframe(df)
+    df = pd.DataFrame(report)
+    st.dataframe(df)
 
-        st.subheader(f"Total Profit Today: ₹ {total_profit}")
-
-        # Reset button
-        if st.button("Reset Today Data"):
-            cur.execute("DELETE FROM sales WHERE date=?", (today,))
-            conn.commit()
-            st.warning("Today's data cleared")
+    st.subheader(f"Total Company Bill: ₹ {total_company_bill}")
+    st.subheader(f"Total Sales Amount: ₹ {total_sales_amount}")
+    st.subheader(f"Total Profit: ₹ {total_profit}")
