@@ -174,7 +174,9 @@ elif menu == "Dashboard":
         total_company_bill += cost_total
         total_sales_amount += sales_total
 
+
         report.append({
+            "Product ID": p["product_id"],   # <-- ADD THIS LINE
             "Product": p["name"],
             "Sold Qty": qty,
             "Cost Price": p["cost_price"],
